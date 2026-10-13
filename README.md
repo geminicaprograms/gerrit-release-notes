@@ -30,30 +30,42 @@ non-deterministic run to run, so a human curation pass is always required.
     branches fetched: `git fetch origin --tags`
   - `homepage` (`https://gerrit.googlesource.com/homepage`), where the output is written
 
-**Cost (rough):** `.0` mode ≈ 0.9M tokens, 30–50 min wall-clock (Classify is the
-long pole). Bugfix mode ≈ 250k tokens, ~7 min for six bugfix releases.
+**Cost:** the 3.15.0 run (528 candidate commits, 249 included) took 48 agents,
+≈ 2.7M subagent tokens and 24 min wall-clock. Expect the same order of magnitude
+for any `.0` release. Bugfix mode is much smaller: one agent per bugfix release,
+plus a validation agent each.
 
 ## Install
 
-Symlink the files into your Gerrit checkout so Claude Code lists the workflow as
-`gerrit-release-notes`:
+Clone this repo **inside** your Gerrit checkout, and keep it out of `git status`:
 
 ```sh
-git clone https://github.com/geminicaprograms/gerrit-release-notes ~/gerrit-release-notes
-mkdir -p <gerrit>/.claude/workflows
-ln -s ~/gerrit-release-notes/{gerrit-release-notes.js,reflow_md.py,reorder_to_match_original.py} \
-  <gerrit>/.claude/workflows/
+cd <gerrit>
+git clone https://github.com/geminicaprograms/gerrit-release-notes \
+  .claude/workflows/gerrit-release-notes
+echo '.claude/workflows/gerrit-release-notes/' >> .git/info/exclude
+echo '.claude/tmp/' >> .git/info/exclude
 ```
 
-Installed somewhere else? Pass `toolsDir` (the directory containing `reflow_md.py`)
-and run the script by path (`scriptPath`).
+Update later with `git -C .claude/workflows/gerrit-release-notes pull`.
+
+**Why inside the checkout:** Claude Code loads a workflow script only from a
+directory the session can access, and it checks the real path. So a symlink
+pointing at a clone elsewhere (for example `~/gerrit-release-notes`) is refused
+with `scriptPath must be a script path this tool returned, or a file you can
+already read`. If you keep the clone elsewhere, add that directory to the
+session (`claude --add-dir <dir>` or `/add-dir`) and pass `toolsDir`.
 
 ## Run — `x.y.0` release
 
-Start `claude` in the Gerrit checkout and ask in plain words, for example:
+Start `claude` in the Gerrit checkout and ask in plain words, naming the script
+path, for example:
 
-> Run the gerrit-release-notes workflow with args
-> `{"version":"3.15.0","gerritRepo":"/abs/path/gerrit","homepageRepo":"/abs/path/homepage"}`
+> Run the workflow `.claude/workflows/gerrit-release-notes/gerrit-release-notes.js`
+> with args `{"version":"3.15.0","gerritRepo":"/abs/path/gerrit","homepageRepo":"/abs/path/homepage"}`
+
+Before the final tag exists, end the range at the stable branch instead, e.g.
+`"tag":"origin/stable-3.15"` (any git ref works).
 
 Defaults derived from `version`: `tag` = `v3.15.0`, `prevVersion` = `3.14`,
 `prevBranch` = `origin/stable-3.14`, output = `<homepage>/pages/site/releases/3.15.0-generated.md`.
@@ -66,7 +78,7 @@ Synthesize (Opus) → Assemble (chunked write) → Reflow. The result includes
 
 ## Run — bugfix sections (`x.y.1` … `x.y.N`)
 
-> Run the gerrit-release-notes workflow with args
+> Run the workflow `.claude/workflows/gerrit-release-notes/gerrit-release-notes.js` with args
 > `{"version":"3.15.0","mode":"bugfix","gerritRepo":"…","homepageRepo":"…","outputPath":"<homepage>/pages/site/releases/3.15.md"}`
 
 Bugfix tags `v3.15.1…` are auto-detected (or pass `releases:["3.15.1",…]`). Each
@@ -108,7 +120,7 @@ set and may not start with `-`. Anything else stops the run before any agent sta
 | `stableBranchName` | `stable-<x.y>` | Bugfix mode change-number resolution |
 | `outputPath` | `<homepage>/pages/site/releases/<version>-generated.md` | |
 | `scratchDir` | `<gerritRepo>/.claude/tmp/relnotes-<version>` | Wiped at the start of each run; last segment must contain `relnotes` and it must not contain any input/output path |
-| `toolsDir` | `<gerritRepo>/.claude/workflows` | Directory containing `reflow_md.py` |
+| `toolsDir` | `<gerritRepo>/.claude/workflows/gerrit-release-notes` | Directory containing `reflow_md.py` |
 | `batchSize` | `50` | Commits per Classify agent; 90 made single agents take ~22 min |
 | `proseWidth` | `80` | Wrap width (release-notes house style ≈ 80, not 72) |
 | `sections` | 3.14 taxonomy | Override the change-list section names (see below) |
@@ -212,7 +224,7 @@ fetched from Gerrit. A crafted commit message could try to steer an agent
 
 These reduce the risk; they don't remove it. Run the workflow in Claude Code's
 normal permission mode, **not** with permissions bypassed, and review what the
-agents propose to run. Add `.claude/tmp/` to your Gerrit checkout's
+agents propose to run. The install step adds `.claude/tmp/` to your Gerrit checkout's
 `.git/info/exclude` so scratch files never get committed.
 
 ## License

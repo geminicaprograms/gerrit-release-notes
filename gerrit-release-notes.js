@@ -54,8 +54,9 @@ const candidatesPath = `${scratchDir}/candidates.jsonl`
 const changeNumsPath = `${scratchDir}/changenums.json`
 const outputPath = A.outputPath || `${homepageRepo}/pages/site/releases/${version}-generated.md`
 // Directory holding reflow_md.py. Default matches the install layout in README.md
-// (this repo symlinked into <gerritRepo>/.claude/workflows/); override if installed elsewhere.
-const toolsDir = (A.toolsDir || `${gerritRepo}/.claude/workflows`).replace(/\/+$/, '')
+// (this repo cloned into <gerritRepo>/.claude/workflows/gerrit-release-notes/);
+// override if installed elsewhere.
+const toolsDir = (A.toolsDir || `${gerritRepo}/.claude/workflows/gerrit-release-notes`).replace(/\/+$/, '')
 const reflowScript = `${toolsDir}/reflow_md.py` // wraps prose to width, links unbroken
 
 // ---------------------------------------------------------------------------
