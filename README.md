@@ -203,8 +203,10 @@ fetched from Gerrit. A crafted commit message could try to steer an agent
   as instructions;
 - all args that reach a shell are validated against a metacharacter-free set, and
   bugfix tags reported by an agent are re-validated before use;
-- `approvedFrom: "gerrit:<n>"` is ignored unless the change is merged (override:
-  `allowUnmergedApproved: true`);
+- `approvedFrom: "gerrit:<n>"` is not fetched unless the change is merged. A
+  separate agent checks the status first with a fixed command that prints only
+  the status field, so the change's own text can't influence the decision;
+  anything other than `MERGED` is refused (override: `allowUnmergedApproved: true`);
 - scratch files live in your checkout (`<gerritRepo>/.claude/tmp/`), not in the
   shared `/tmp`.
 

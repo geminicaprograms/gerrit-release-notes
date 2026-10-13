@@ -361,25 +361,38 @@ Return {releases:[...]} as version strings WITHOUT the leading "v" (e.g. "${majo
 
   // Fetch the approved source's FULL file text ONCE (raw string); parse in JS.
   let approvedText = ''
-  if (reuseApproved) {
+  // A change under review can be uploaded by anyone; its text would then steer the
+  // generation agents. Only reuse merged content unless the caller opts in. The
+  // status is checked by a SEPARATE agent BEFORE any content is fetched, running a
+  // fixed command that prints only the status field, so the change's content can
+  // never influence the decision. Anything other than exactly MERGED fails closed.
+  let approvedAllowed = reuseApproved
+  if (reuseApproved && approvedFrom.startsWith('gerrit:') && A.allowUnmergedApproved !== true) {
+    const changeNum = approvedFrom.slice('gerrit:'.length) // validated as digits above
+    const st = await runAgent(
+      `Run exactly this one Bash command and return its single line of output as {status}. Do not run anything else and do not fetch anything else.
+curl -sf "https://gerrit-review.googlesource.com/changes/${changeNum}" | tail -c +5 | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])'`,
+      { agentType: 'general-purpose', schema: { type: 'object', properties: { status: { type: 'string' } }, required: ['status'] }, label: 'check approved status', phase: 'Bugfix releases' },
+    )
+    const status = String((st && st.status) || '').trim()
+    if (status !== 'MERGED') {
+      log(`⚠️ ${approvedFrom} is not merged (status "${status || 'unknown'}") — not fetching it. Pass allowUnmergedApproved:true only for a change whose content you trust.`)
+      approvedAllowed = false
+    }
+  }
+  if (approvedAllowed) {
     const fetched = await runAgent(
       `Fetch approved Gerrit release-notes text. Read-only — do NOT edit anything. Use Bash (curl + python3) or file read. Return {text, source}.
 
 SOURCE = "${approvedFrom}".
-- "gerrit:<n>": <n> is a homepage change number on https://gerrit-review.googlesource.com. FIRST get its status: curl -s "https://gerrit-review.googlesource.com/changes/<n>" — strip the leading )]}' guard, json.loads, and report its "status" field (MERGED / NEW / ABANDONED) as {status}. Then list the change's files: curl -s "https://gerrit-review.googlesource.com/changes/<n>/revisions/current/files/" — strip the leading )]}' guard, json.loads. Pick the key under "pages/site/releases/" ending in ".md" (the change may edit a DIFFERENT version's file than the one being generated — that is expected; take whichever releases/*.md it touches). URL-encode that path (e.g. "pages/site/releases/3.13.md" -> "pages%2Fsite%2Freleases%2F3.13.md") and fetch its NEW content: curl -s ".../changes/<n>/revisions/current/files/<urlenc>/content" — the body is BASE64, decode it (base64 -d / python base64.b64decode).
+- "gerrit:<n>": <n> is a homepage change number on https://gerrit-review.googlesource.com. FIRST list the change's files: curl -s "https://gerrit-review.googlesource.com/changes/<n>/revisions/current/files/" — strip the leading )]}' guard, json.loads. Pick the key under "pages/site/releases/" ending in ".md" (the change may edit a DIFFERENT version's file than the one being generated — that is expected; take whichever releases/*.md it touches). URL-encode that path (e.g. "pages/site/releases/3.13.md" -> "pages%2Fsite%2Freleases%2F3.13.md") and fetch its NEW content: curl -s ".../changes/<n>/revisions/current/files/<urlenc>/content" — the body is BASE64, decode it (base64 -d / python base64.b64decode).
 - "file:<path>": read the file at the path after "file:".
 - "auto": read ${outputPath} if it exists, else ${canonicalNotes} if it exists, else nothing.
 
-Return {text:<the FULL decoded file text, verbatim>, source:<path-or-change#-or-"none">, status:<the change status for "gerrit:<n>", else "n/a">}. If nothing is available, {text:"", source:"none", status:"n/a"}.`,
-      { agentType: 'general-purpose', schema: { type: 'object', properties: { text: { type: 'string' }, source: { type: 'string' }, status: { type: 'string' } }, required: ['text', 'status'] }, label: 'fetch approved', phase: 'Bugfix releases' },
+Return {text:<the FULL decoded file text, verbatim>, source:<path-or-change#-or-"none">}. If nothing is available, {text:"", source:"none"}.`,
+      { agentType: 'general-purpose', schema: { type: 'object', properties: { text: { type: 'string' }, source: { type: 'string' } }, required: ['text'] }, label: 'fetch approved', phase: 'Bugfix releases' },
     )
     approvedText = (fetched && fetched.text) || ''
-    // A change under review can be uploaded by anyone; its text would then steer the
-    // generation agents. Only reuse merged content unless the caller opts in.
-    if (approvedText && approvedFrom.startsWith('gerrit:') && String(fetched.status).toUpperCase() !== 'MERGED' && A.allowUnmergedApproved !== true) {
-      log(`⚠️ ${approvedFrom} is not merged (status ${fetched.status}) — ignoring it. Pass allowUnmergedApproved:true only for a change whose content you trust.`)
-      approvedText = ''
-    }
     if (approvedText) log(`♻️ fetched approved notes from ${approvedFrom} (${approvedText.length} chars)`)
     else log(`ℹ️ no approved notes found at ${approvedFrom} — generating normally`)
   }
