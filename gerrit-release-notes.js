@@ -43,7 +43,14 @@ if (!A.prevVersion && minor === 0 && (A.mode || 'release').toLowerCase() === 're
 }
 const prevVersion = A.prevVersion || `${major}.${minor - 1}`
 const prevBranch = A.prevBranch || `origin/stable-${prevVersion}`
-const prevReleaseTag = A.prevReleaseTag || `v${prevVersion}.0` // JGit delta is shown since the previous RELEASE, not the merge-base
+const prevReleaseTag = A.prevReleaseTag || `v${prevVersion}.0` // JGit baseline when the previous release has no bugfix releases (see jgitOldRefRule)
+// JGit range start. Once bugfix releases v<prev>.1+ exist they have already shipped the
+// JGit bumps of the previous stable branch, so the .0 notes start at the JGit sha at
+// the merge-base (e.g. 3.15.0: 182a14056 = JGit in v3.14.4, not d95b54f60 in v3.14.0).
+// An explicit prevReleaseTag arg always wins.
+const jgitOldRefRule = A.prevReleaseTag
+  ? `oldRef = the jgit submodule sha at ${prevReleaseTag} (git ls-tree ${prevReleaseTag} modules/jgit); set oldRefBase="${prevReleaseTag}".`
+  : `oldRef depends on whether the previous release has bugfix releases: run \`git tag -l 'v${prevVersion}.*'\` and look for tags v${prevVersion}.Z with Z >= 1 (ignore -rc tags). IF ANY EXIST: oldRef = the jgit submodule sha at MB (git ls-tree MB modules/jgit) and oldRefBase="merge-base" — those bugfix releases already shipped the JGit bumps of the previous stable branch, so this release shows only the delta since the merge-base. IF NONE EXIST: oldRef = the jgit submodule sha at ${prevReleaseTag} (git ls-tree ${prevReleaseTag} modules/jgit) and oldRefBase="${prevReleaseTag}".`
 const gerritRepo = A.gerritRepo.replace(/\/+$/, '')
 const homepageRepo = A.homepageRepo.replace(/\/+$/, '')
 // Scratch lives under the user's own checkout, not the shared, world-writable /tmp
@@ -158,7 +165,7 @@ const COLLECT_SCHEMA = {
     schemaNote: { type: 'string', description: 'human note: old vs new schema version, or unchanged' },
     jgit: {
       type: 'object',
-      properties: { oldRef: { type: 'string' }, newRef: { type: 'string' }, present: { type: 'boolean' } },
+      properties: { oldRef: { type: 'string' }, newRef: { type: 'string' }, present: { type: 'boolean' }, oldRefBase: { type: 'string', description: '"merge-base" or the tag the oldRef was taken from' } },
     },
     submoduleBumps: {
       type: 'array',
@@ -704,7 +711,7 @@ STEPS (use Bash; you may write a small python3 helper for robust JSON):
    IMPORTANT: keep order = git log order; idx MUST equal the line position. candidateCount = number of lines written.
 7. SUBPROJECT METADATA:
    - submoduleBumps: diff ${prevBranch}-fork..${tag} is not reliable; instead inspect the FINAL vs INITIAL submodule shas across the range. Practical approach: for each path printed by \`git config -f .gitmodules --get-regexp path\`, get oldSha = \`git ls-tree MB <path>\` and newSha = \`git ls-tree ${tag} <path>\`; include only where they differ.
-   - jgit: newRef = the jgit submodule sha at ${tag} (git ls-tree ${tag} modules/jgit). oldRef = the jgit submodule sha at the PREVIOUS RELEASE tag ${prevReleaseTag} (git ls-tree ${prevReleaseTag} modules/jgit) — NOT the merge-base, because the release notes show the JGit delta since the previous RELEASE (e.g. 3.13.0 shows jgit since v3.12.0). If ${prevReleaseTag} is missing, fall back to the first "Update JGit to" old ref in range. set present=false if oldRef==newRef.
+   - jgit: newRef = the jgit submodule sha at ${tag} (git ls-tree ${tag} modules/jgit). ${jgitOldRefRule} If that ref is missing, fall back to the first "Update JGit to" old ref in range. set present=false if oldRef==newRef.
    - depUpdates: collect subjects matching /^Update .* to / and /^Upgrade .* to / that are dependency version bumps (h2, lucene, guava, mina, sshd, lit, icu4j, typescript, eslint, bouncycastle, etc.). Return raw subjects.
    - dockerBaseImages: any commit subjects/bodies mentioning AlmaLinux/Ubuntu/Temurin base image bumps.
 8b. FOOTERED SET: also return footeredChangeIds = the Change-Id of every candidate (after the filters above) whose Release-Notes footer is a REAL note (i.e. NOT "skip" and NOT empty/"none"). These are author-written release notes and MUST all be covered downstream.
@@ -716,6 +723,7 @@ const collect = await runAgent(collectPrompt, {
   agentType: 'general-purpose', schema: COLLECT_SCHEMA, label: 'collect+filter', phase: 'Collect',
 })
 log(`Collected ${collect.candidateCount} candidates (dropped ${collect.droppedNoise || 0} noise, ${collect.droppedNonSpecific || 0} non-specific). Schema: ${collect.schemaNote || 'n/a'}`)
+if (collect.jgit && collect.jgit.present) log(`JGit range: ${collect.jgit.oldRef}..${collect.jgit.newRef} (from ${collect.jgit.oldRefBase || 'unknown base'})`)
 
 // ===========================================================================
 // PHASE 2 — CLASSIFY + DRAFT (Sonnet, parallel batches over the file)

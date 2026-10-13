@@ -116,7 +116,7 @@ set and may not start with `-`. Anything else stops the run before any agent sta
 | `tag` | `v<version>` | |
 | `prevVersion` | minor − 1 | Required for a major bump |
 | `prevBranch` | `origin/stable-<prevVersion>` | |
-| `prevReleaseTag` | `v<prevVersion>.0` | JGit delta baseline |
+| `prevReleaseTag` | see JGit rule | Explicit JGit baseline tag; overrides the automatic choice |
 | `stableBranchName` | `stable-<x.y>` | Bugfix mode change-number resolution |
 | `outputPath` | `<homepage>/pages/site/releases/<version>-generated.md` | |
 | `scratchDir` | `<gerritRepo>/.claude/tmp/relnotes-<version>` | Wiped at the start of each run; last segment must contain `relnotes` and it must not contain any input/output path |
@@ -177,8 +177,13 @@ deterministically with `git diff --name-only <prev> <tag> -- plugins/`.
     on an older stable branch and merged up), else `master`. Don't filter with
     `branch:stable-x.y`, which returns nothing for merge-up fixes.
 
-**JGit** delta is shown since the previous release tag (`prevReleaseTag`), not the
-merge-base. Highlights and Important Notes carry `<!-- TODO: review -->` markers.
+**JGit** range start: if bugfix releases of the previous version exist
+(`v<prevVersion>.1`, …), the JGit sha at the merge-base, because those bugfix
+releases already shipped the earlier JGit bumps (3.15.0: `182a14056`, the JGit in
+v3.14.4). Otherwise the JGit sha at `v<prevVersion>.0`. Pass `prevReleaseTag` to
+force a specific tag. The run logs which base it used.
+
+Highlights and Important Notes carry `<!-- TODO: review -->` markers.
 
 ## After the run
 
