@@ -81,7 +81,8 @@ are logged and returned, never auto-inserted.
 | Arg | Default | Meaning |
 |-----|---------|---------|
 | `reuseApproved` | `true` | `false` = always regenerate |
-| `approvedFrom` | `"auto"` | `"auto"` (outputPath, then `<x.y>.md`), `"file:<path>"`, or `"gerrit:<change#>"` (a homepage change under review, fetched over REST) |
+| `approvedFrom` | `"auto"` | `"auto"` (outputPath, then `<x.y>.md`), `"file:<abs path>"`, or `"gerrit:<change#>"` (a homepage change, fetched over REST; must be **merged**) |
+| `allowUnmergedApproved` | `false` | Allow a `gerrit:<n>` source that is not merged yet. Only for a change whose content you trust (see Security) |
 | `reuseMode` | `"augment"` | `"augment"` (reuse + propose additions) or `"verbatim"` (reuse as-is) |
 | `reconcileRefs` | `true` | After generation, take `[Change N]` numbers for matching entries from the existing block in `outputPath` (reference only, never prose) |
 
@@ -90,6 +91,9 @@ non-merge commit in the tag range is marked in, folded or excluded, and genuine
 misses are flagged in `validation[]`.
 
 ## All args
+
+Paths must be absolute and use only `A-Z a-z 0-9 . _ / -`; git refs use the same
+set and may not start with `-`. Anything else stops the run before any agent starts.
 
 | Arg | Default | Notes |
 |-----|---------|-------|
@@ -103,7 +107,7 @@ misses are flagged in `validation[]`.
 | `prevReleaseTag` | `v<prevVersion>.0` | JGit delta baseline |
 | `stableBranchName` | `stable-<x.y>` | Bugfix mode change-number resolution |
 | `outputPath` | `<homepage>/pages/site/releases/<version>-generated.md` | |
-| `scratchDir` | `/tmp/gerrit-relnotes-<version>` | Wiped at the start of each run |
+| `scratchDir` | `<gerritRepo>/.claude/tmp/relnotes-<version>` | Wiped at the start of each run; last segment must contain `relnotes` and it must not contain any input/output path |
 | `toolsDir` | `<gerritRepo>/.claude/workflows` | Directory containing `reflow_md.py` |
 | `batchSize` | `50` | Commits per Classify agent; 90 made single agents take ~22 min |
 | `proseWidth` | `80` | Wrap width (release-notes house style ≈ 80, not 72) |
@@ -187,6 +191,27 @@ merge-base. Highlights and Important Notes carry `<!-- TODO: review -->` markers
 - **Non-determinism.** Counts and borderline sectioning vary between runs.
 - **Change-number flakiness** in bugfix mode is mitigated by `reconcileRefs` when
   the destination file already has human-verified numbers.
+
+## Security
+
+The workflow starts agents that run shell commands (`git`, `curl`, `python3`) and
+read text written by other people: commit messages, plugin logs, and release notes
+fetched from Gerrit. A crafted commit message could try to steer an agent
+(prompt injection). Mitigations in the script:
+
+- every agent prompt starts with an instruction to treat that text as data, never
+  as instructions;
+- all args that reach a shell are validated against a metacharacter-free set, and
+  bugfix tags reported by an agent are re-validated before use;
+- `approvedFrom: "gerrit:<n>"` is ignored unless the change is merged (override:
+  `allowUnmergedApproved: true`);
+- scratch files live in your checkout (`<gerritRepo>/.claude/tmp/`), not in the
+  shared `/tmp`.
+
+These reduce the risk; they don't remove it. Run the workflow in Claude Code's
+normal permission mode, **not** with permissions bypassed, and review what the
+agents propose to run. Add `.claude/tmp/` to your Gerrit checkout's
+`.git/info/exclude` so scratch files never get committed.
 
 ## License
 
